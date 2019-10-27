@@ -4,7 +4,6 @@
 //Temperature Sensor Definitions
 const int B = 4275;               // B value of the thermistor
 const int R0 = 100000;            // R0 = 100k
-const int pinTempSensor = A0;     // Grove - Temperature Sensor connect to A0
 
 // WiFi Definitions
 const char* ssid = "Esp8266TestNet";
@@ -13,86 +12,95 @@ const char* value = "";
 String request;
 
 //Global variables for mode, ideal temp, and auto temps
-int mode = 0; //0 = off, 1 = on, 2 = auto
-int userTemp = 72; //room temperature, shouldn't matter as it changes as soon as mode is on, and fluctuate will always check mode first
-int autoTemp = 85;
-int autoThreshold = 75;
+int heatMode = 0; //0 = off, 1 = on, 2 = auto
+int userTemp = 25; //room temperature, shouldn't matter as it changes as soon as mode is on, and fluctuate will always check mode first
+int autoTemp = 45;
+int autoThreshold = 30;
 
-int enableCircuit = D1; //output pin for current restrictor
+int enableCircuit = 2; //output pin for current restrictor
 //int ambientTempPin = A1; //Future Expansion
 int gloveTempPin = A0; //input pin for glove temp
 
 //pinMode(ambientTempPin, INPUT);
-pinMode(enableCircuit, OUTPUT);
-pinMode(gloveTempPin, INPUT);
+
 
 WiFiServer server(80);
+//void ICACHE_RAM_ATTR onTimerISR(){
+////Transmits inner glove temperature, and regulates temperature
+//
+//  fluctuate(request);
+//  client.print(getGloveTemp());
+//
+//}
 
 void setup() {
+  
+  pinMode(enableCircuit, OUTPUT);
+  pinMode(gloveTempPin, INPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
 
-  cli(); //Stops interrupts, to setup for interrupts
-
-  TCCR1A = 0;// set entire TCCR1A register to 0
-  TCCR1B = 0;// same for TCCR1B
-  TCNT1  = 0;//initialize counter value to 0
-  // set compare match register for 1hz increments
-  OCR1A = 15624;// = (16*10^6) / (1*1024) - 1 (must be <65536)
-  // turn on CTC mode
-  TCCR1B |= (1 << WGM12);
-  // Set CS10 and CS12 bits for 1024 prescaler
-  TCCR1B |= (1 << CS12) | (1 << CS10);  
-  // enable timer compare interrupt
-  TIMSK1 |= (1 << OCIE1A);
-
-  sei(); //Allow interrupts again
 
    Serial.begin(115200);
    delay(10);
-   pinMode(heatPin, OUTPUT);
-   digitalWrite(heatPin, HIGH); // turn on
+
 
    WiFi.mode(WIFI_AP);
-   WiFi.softAP(ssid, password, 1, 1);
+   WiFi.softAP(ssid, password, 1, 0);
   
-   server.begin();
+   server.begin();   
+//   cli(); //Stops interrupts, to setup for interrupts
+//   timer1_attachInterrupt(onTimerISR);
+//   timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+//   timer1_write(600000); //120000 us
+//   sei(); //Allow interrupts again
 }
 
 
-//Timer 1 Interrupt
-ISR(TIMER1_COMPA_vect) {//Timer 1 interrupt at 1Hz because of math in setup
-//Transmits inner glove temperature, and regulates temperature
 
-  fluctuate(request);
-  client.print(getGloveTemp());
-
-}
 
 void setMode(String request) { //takes client request as input, returns 1 if turn on heating, 0 if not, -1 if anything else
 
-  if(request.indexOf("/heat/on") != -1) mode =  1; //on
-  else if (request.indexOf("/heat/off") != -1) mode = 0; //off
-  else if(request.indexOf("/heat/auto") != -1) mode = 2; //auto
+  Serial.println(request);
+  if(request.indexOf("/heat/on") != -1) {heatMode =  1;  digitalWrite(LED_BUILTIN, LOW);Serial.println("poop");}  //on
+  else if (request.indexOf("/heat/off") != -1) {heatMode =  0;  digitalWrite(LED_BUILTIN, HIGH);Serial.println("head");} //off
+  else if(request.indexOf("/heat/auto") != -1) heatMode = 2; //auto
   
 }
 
 void setTemp (String request) { //read temperature input from user from app
   
-  mode = setMode(request);
+  setMode(request);
 
-  if(mode == 1) { //in mode 1, input string will be of format "./heat/on?temp"
+  if(heatMode==1) {
+    
+  
+    if(request.indexOf("?") != -1) {
 
-    userTemp = (int) request.substring(request.indexOf("?")+1);
+      String tempstr = request.substring(request.indexOf("?")+1);
+      userTemp = tempstr.toInt();
 
-  }
-  else if(mode == 2) { //in mode 2, input string will be of format "./heat/auto/threshold=autoThreshold&temp=autoTemp
+      }
+      else {
 
-    String x = request.substring(request.indexOf("threshold=" + strlen("threshold="), request.indexOf("&"));//returns characters between end of "threshold=" and "&"
+        userTemp = 100;
+      }
+    }
+  else if(heatMode == 2) { //in mode 2, input string will be of format "./heat/auto/threshold=autoThreshold&temp=autoTemp
+  if(request.indexOf("?") != -1) {
+    String x = request.substring(request.indexOf("threshold=") + strlen("threshold="), request.indexOf("&"));//returns characters between end of "threshold=" and "&"
     autoThreshold =  x.toInt(); //converts to int
 
     String y = request.substring(request.indexOf("&")+strlen("temp="));//returns characters after "&"
     autoTemp = y.toInt(); 
   }
+  }
   
+}
+
+int celsiusToFarenheit(int celsius) {
+
+  int farenheit =  (int) (celsius*1.8) + 32;
+  return farenheit;
 }
 
 int getGloveTemp() { //Read ambient temperature from sensor on inside of glove
@@ -104,29 +112,28 @@ int getGloveTemp() { //Read ambient temperature from sensor on inside of glove
 
   float temperature = 1.0/(log(R/R0)/B+1/298.15)-273.15; // convert to temperature via datasheet
 
-  return (int) lround(temperature);
+  return ((int) lround(temperature));
   
 }
 
 
 void fluctuate (String request) { //check temperature reading vs set reading. If lower, heat up. If higher, turn off
-
-  mode = setMode(request);
+ 
   setTemp(request);
   int gloveTemp = getGloveTemp();
-
-  if(mode == 1) { //if mode = on
+  if(heatMode == 1) { //if mode = on
 
       if(gloveTemp < userTemp) digitalWrite(enableCircuit, HIGH);
       else digitalWrite(enableCircuit, LOW);
     
   }
-  else if(mode == 2) { //if mode = auto
+  else if(heatMode == 2) { //if mode = auto
 
     if(gloveTemp < autoThreshold) digitalWrite(enableCircuit, HIGH); //if less than threshold, turn on. If greater than threshold, dont change state (could be on and heating up or off and doing nothing)
-    else if(gloveTemp) >= autoTemp) digitalWrite(enableCircuit, LOW); //if temp is higher than the auto temp, turn off
+    else if((gloveTemp) >= autoTemp) digitalWrite(enableCircuit, LOW); //if temp is higher than the auto temp, turn off
     
   }
+  else if(heatMode == 0) digitalWrite(enableCircuit, LOW);
   
 }
 
@@ -141,11 +148,19 @@ void loop() {
   request = client.readStringUntil('\r');
   Serial.println(request);
   client.flush();
+
+  fluctuate(request);
+  Serial.print("Temperature Reading (C): ");
+  Serial.println(getGloveTemp());
+
+  Serial.println("\nUser Temp: ");
+  Serial.println(userTemp);
+//  client.print(getGloveTemp());
   
 //  // Send the response to the client //not necessary if sending data in interrupt
 //  client.print(s);
 //  delay(1);
-//  Serial.println("Client disconnected");
+  Serial.println("Client disconnected");
 
   // The client will actually be disconnected when the function returns and the client object is destroyed
 }
