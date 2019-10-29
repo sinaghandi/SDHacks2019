@@ -61,7 +61,7 @@ void setup() {
 void setMode(String request) { //takes client request as input, returns 1 if turn on heating, 0 if not, -1 if anything else
 
   Serial.println(request);
-  if(request.indexOf("/heat/on") != -1) {heatMode =  1;  digitalWrite(LED_BUILTIN, LOW);Serial.println("poop");}  //on
+  if(request.indexOf("/heat/on") != -1) {heatMode =  1;  digitalWrite(LED_BUILTIN, LOW);Serial.println("tails");}  //on
   else if (request.indexOf("/heat/off") != -1) {heatMode =  0;  digitalWrite(LED_BUILTIN, HIGH);Serial.println("head");} //off
   else if(request.indexOf("/heat/auto") != -1) heatMode = 2; //auto
   
